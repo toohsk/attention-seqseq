@@ -13,36 +13,58 @@ import chainer.links as L
 
 # In[ ]:
 
-plain_vocab = {}
+src_vocab = {}
 EOS = '<eos>'
+NIL = '<nil>'
 entity_vocab = {}
 id2wb = {}
 
 
 # In[ ]:
 
-plain_lines = open('./input.txt').read().split('\n')
+import pickle
+def read_data_from_pickle(filepath):
+    with open(filepath, 'rb') as f:
+        return pickle.load(f)
+
+src_lines = read_data_from_pickle('./data/seq2seq_wiki/src/src_list_1.pickle').decode('utf8').split('\n')
+dest_lines = read_data_from_pickle('./data/seq2seq_wiki/dest_all/replace_entity_list_1.pickle').decode('utf8').split('\n')
+entity_lines = read_data_from_pickle('./data/seq2seq_wiki/dest_entity/entity_list_1.pickle').decode('utf8').split('\n')
 
 
 # In[ ]:
 
-print(plain_lines)
-for line in plain_lines:
+len(dest_lines)
+
+
+# In[ ]:
+
+len(src_lines)
+
+
+# In[ ]:
+
+len(entity_lines)
+
+
+# In[ ]:
+
+for line in src_lines:
     lt = line.split()
     for w in lt:
-        if w not in plain_vocab:
-            plain_vocab[w] = len(plain_vocab)
+        if w not in src_vocab:
+            src_vocab[w] = len(src_vocab)
 
 
 # In[ ]:
 
-plain_vocab[EOS] = len(plain_vocab)-1
-pv = len(plain_vocab)
+src_vocab[EOS] = len(src_vocab)
+pv = len(src_vocab)
 
 
 # In[ ]:
 
-entity_lines = open('./output.txt').read().split('\n')
+# entity_lines = open('./output.txt').read().split('\n')
 
 
 # In[ ]:
@@ -51,16 +73,23 @@ for line in entity_lines:
     lt = line.split()
     for w in lt:
         if w not in entity_vocab:
-            id = len(entity_vocab)
-            entity_vocab[w] = id
-            id2wb[id] = w
+            vocab_size = len(entity_vocab)
+            entity_vocab[w] = vocab_size
+            id2wb[vocab_size] = w
+#     print(len(entity_vocab))
 
 
 # In[ ]:
 
-id = len(entity_vocab)
-entity_vocab[EOS] = id-1
-id2wb[id-1] = EOS
+print(len(entity_vocab))
+vocab_size = len(entity_vocab)
+entity_vocab[EOS] = vocab_size
+id2wb[vocab_size] = EOS
+
+vocab_size = len(entity_vocab)
+entity_vocab[NIL] = vocab_size
+id2wb[vocab_size] = NIL
+
 ev = len(entity_vocab)
 
 
@@ -95,12 +124,12 @@ class ATT(chainer.Chain):
     def __call__(self, pline, eline):
         gh = []
         for i in range(len(pline)):
-            wid = plain_vocab[pline[i]]
+            wid = src_vocab[pline[i]]
             x_k = self.embedx(Variable(np.array([wid], dtype=np.int32)))
             h = self.H(x_k)
             gh.append(np.copy(h.data[0]))
             
-        x_k = self.embedx(Variable(np.array([plain_vocab[EOS]], dtype=np.int32)))
+        x_k = self.embedx(Variable(np.array([src_vocab[EOS]], dtype=np.int32)))
         tx = Variable(np.array([entity_vocab[eline[0]]], dtype=np.int32))
         h = self.H(x_k)
         ct = mk_ct(gh, h.data[0])
@@ -131,14 +160,23 @@ model = ATT(pv, ev, demb)
 optimizer = optimizers.Adam()
 optimizer.setup(model)
 
-sum_loss = 0
+n_epoch = 20
 
-for epoch in range(100):
-    for i in range(len(plain_lines)-1):
-        
-        pln = plain_lines[i].split()
+print(len(src_lines))
+import datetime
+
+for epoch in range(n_epoch):
+    sum_loss = 0
+    
+    for i in range(len(src_lines)-1):
+        if i % 1000 == 0:
+            print("{0}: Epoch {1} - Lines {2}...".format(datetime.datetime.today().strftime("%Y-%m-%d %H:%M:%S"), epoch, i))
+        pln = src_lines[i].split()
         plnr = pln[::-1]
         eln = entity_lines[i].split()
+        if len(eln) == 0:
+            eln = [NIL]
+#         print(eln)
         model.reset_state()
         model.zerograds()
         loss = model(plnr, eln)
@@ -146,11 +184,17 @@ for epoch in range(100):
         loss.backward()
         loss.unchain_backward()
         optimizer.update()
-        print(i, " finished")
-        print("train loss:", sum_loss)
+    print("{0} finished".format(epoch), flush=True)
+    print("train loss: {0}".format(sum_loss), flush=True)
     
-    outfile = "attention-"+str(epoch)+".model"
-    serializers.save_npz(outfile, model)
+    if epoch == n_epoch-1:
+        outfile = "attention-"+str(n_epoch)+".model"
+        serializers.save_npz(outfile, model)
+
+
+# In[ ]:
+
+
 
 
 # In[ ]:
